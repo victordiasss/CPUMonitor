@@ -14,6 +14,10 @@ import psutil
 # CONFIGURAÇÕES
 # ============================================================
 
+# Versão do CPUMonitor.
+# Esta é a versão oficial utilizada pelo programa e pelo executável.
+VERSAO = "0.1.0"
+
 # Intervalo entre as medições.
 # 60 segundos = 1 medição por minuto.
 INTERVALO_COLETA = 60
@@ -22,6 +26,20 @@ INTERVALO_COLETA = 60
 # O valor 1 significa que cada medição representa
 # aproximadamente 1 segundo de utilização da CPU.
 INTERVALO_CPU = 1
+
+# ============================================================
+# MODO DE COLETA
+# ============================================================
+
+# "24H"   = coleta continuamente, 24 horas por dia.
+# "07_19" = coleta somente entre 07:00 e 19:00.
+#
+# Se o programa for iniciado às 10:00 no modo "07_19",
+# a coleta começará às 10:00 e terminará às 19:00.
+MODO_COLETA = "24H"
+
+HORA_INICIO = 7
+HORA_FIM = 19
 
 
 # ============================================================
@@ -467,11 +485,21 @@ def gerar_relatorio_csv(data):
             "RELATÓRIO DIÁRIO DE MONITORAMENTO DE CPU"
         ])
 
+        escritor.writerow([
+            "Versão do CPUMonitor",
+            VERSAO
+        ])
+
         escritor.writerow([])
 
         escritor.writerow([
             "Data",
             data
+        ])
+
+        escritor.writerow([
+            "Modo de coleta",
+            obter_descricao_modo_coleta()
         ])
 
         if servidor:
@@ -609,11 +637,16 @@ def gerar_relatorio_txt(data):
     linhas.append(
         "           RELATÓRIO DIÁRIO DE CPU"
     )
+    linhas.append(f"Versão do CPUMonitor...: {VERSAO}")
     linhas.append("=" * 65)
     linhas.append("")
 
     linhas.append(
         f"Data....................: {data}"
+    )
+
+    linhas.append(
+        f"Modo de coleta..........: {obter_descricao_modo_coleta()}"
     )
 
     if servidor:
@@ -760,6 +793,7 @@ def mostrar_informacoes(info):
     print()
     print("=" * 65)
     print("                    CPU MONITOR")
+    print(f"                    Versão {VERSAO}")
     print("=" * 65)
 
     print(
@@ -805,6 +839,11 @@ def mostrar_informacoes(info):
     print("=" * 65)
 
     print(
+        f"Modo de coleta..........: "
+        f"{obter_descricao_modo_coleta()}"
+    )
+
+    print(
         f"Intervalo de coleta.....: "
         f"{INTERVALO_COLETA} segundos"
     )
@@ -821,6 +860,101 @@ def mostrar_informacoes(info):
 
     print("=" * 65)
     print()
+
+
+# ============================================================
+# CONTROLE DO PERÍODO DE COLETA
+# ============================================================
+
+def dentro_periodo_coleta(agora=None):
+    """
+    Verifica se o horário atual está dentro do período
+    configurado para coleta.
+    """
+
+    if MODO_COLETA == "24H":
+        return True
+
+    if agora is None:
+        agora = datetime.now()
+
+    inicio = agora.replace(
+        hour=HORA_INICIO,
+        minute=0,
+        second=0,
+        microsecond=0
+    )
+
+    fim = agora.replace(
+        hour=HORA_FIM,
+        minute=0,
+        second=0,
+        microsecond=0
+    )
+
+    return inicio <= agora < fim
+
+
+def aguardar_inicio_coleta():
+    """
+    No modo 07:00-19:00, aguarda até o início do período.
+    """
+
+    if MODO_COLETA == "24H":
+        return
+
+    while True:
+
+        agora = datetime.now()
+
+        if dentro_periodo_coleta(agora):
+            return
+
+        inicio_hoje = agora.replace(
+            hour=HORA_INICIO,
+            minute=0,
+            second=0,
+            microsecond=0
+        )
+
+        if agora < inicio_hoje:
+            proximo_inicio = inicio_hoje
+        else:
+            proximo_inicio = (
+                agora + timedelta(days=1)
+            ).replace(
+                hour=HORA_INICIO,
+                minute=0,
+                second=0,
+                microsecond=0
+            )
+
+        print(
+            "Fora do período de coleta. "
+            f"Próximo início: "
+            f"{proximo_inicio.strftime('%d/%m/%Y %H:%M:%S')}"
+        )
+
+        while datetime.now() < proximo_inicio:
+
+            restante = (
+                proximo_inicio - datetime.now()
+            ).total_seconds()
+
+            time.sleep(
+                min(max(restante, 1), 60)
+            )
+
+
+def obter_descricao_modo_coleta():
+    """
+    Retorna uma descrição do modo de coleta.
+    """
+
+    if MODO_COLETA == "07_19":
+        return "07:00 às 19:00"
+
+    return "24 horas"
 
 
 # ============================================================
@@ -847,6 +981,9 @@ def iniciar_monitoramento():
     # Verifica relatório anterior.
     verificar_relatorio_anterior()
 
+    # No modo 07:00-19:00, aguarda se necessário.
+    aguardar_inicio_coleta()
+
     data_atual = datetime.now().strftime(
         "%Y-%m-%d"
     )
@@ -865,6 +1002,28 @@ def iniciar_monitoramento():
 
         while True:
 
+            # No modo 07:00-19:00, encerra às 19:00.
+            if not dentro_periodo_coleta():
+
+                if MODO_COLETA == "07_19":
+
+                    print()
+                    print(
+                        "Horário final de coleta atingido: 19:00."
+                    )
+
+                    print(
+                        "Gerando relatório do período..."
+                    )
+
+                    gerar_relatorio(data_atual)
+
+                    print(
+                        "Coleta encerrada."
+                    )
+
+                    break
+
             inicio_ciclo = time.time()
 
             agora = datetime.now()
@@ -873,46 +1032,34 @@ def iniciar_monitoramento():
                 "%Y-%m-%d"
             )
 
-            # ------------------------------------------------
-            # Mudança de dia
-            # ------------------------------------------------
-
+            # Mudança de dia no modo 24 horas.
             if nova_data != data_atual:
 
                 print(
                     "[SISTEMA] Mudança de dia detectada."
                 )
 
-                # Gera relatório do dia anterior.
-                gerar_relatorio(data_atual)
+                gerar_relatorio(
+                    data_atual
+                )
 
                 data_atual = nova_data
 
-            # ------------------------------------------------
-            # Coleta CPU
-            # ------------------------------------------------
-
+            # Coleta CPU.
             uso_cpu = coletar_cpu()
 
-            # ------------------------------------------------
-            # Salva medição
-            # ------------------------------------------------
+            # Salva medição.
+            salvar_medicao(
+                uso_cpu
+            )
 
-            salvar_medicao(uso_cpu)
-
-            # ------------------------------------------------
-            # Exibe no console
-            # ------------------------------------------------
-
+            # Exibe no console.
             print(
                 f"[{agora.strftime('%Y-%m-%d %H:%M:%S')}] "
                 f"CPU: {uso_cpu:6.2f}%"
             )
 
-            # ------------------------------------------------
-            # Controle do intervalo
-            # ------------------------------------------------
-
+            # Mantém o intervalo de coleta.
             tempo_decorrido = (
                 time.time() - inicio_ciclo
             )
@@ -924,7 +1071,9 @@ def iniciar_monitoramento():
 
             if espera > 0:
 
-                time.sleep(espera)
+                time.sleep(
+                    espera
+                )
 
     except KeyboardInterrupt:
 
@@ -933,9 +1082,10 @@ def iniciar_monitoramento():
             "Encerrando monitoramento..."
         )
 
-        # Gera relatório do dia atual
-        # antes de encerrar.
-        gerar_relatorio(data_atual)
+        # Gera relatório do dia atual antes de encerrar.
+        gerar_relatorio(
+            data_atual
+        )
 
         print(
             "CPU Monitor encerrado."
