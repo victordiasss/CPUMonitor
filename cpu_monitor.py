@@ -31,12 +31,9 @@ INTERVALO_CPU = 1
 # MODO DE COLETA
 # ============================================================
 
+# O modo de coleta será escolhido pelo usuário ao iniciar o programa.
 # "24H"   = coleta continuamente, 24 horas por dia.
 # "07_19" = coleta somente entre 07:00 e 19:00.
-#
-# Se o programa for iniciado às 10:00 no modo "07_19",
-# a coleta começará às 10:00 e terminará às 19:00.
-MODO_COLETA = "24H"
 
 HORA_INICIO = 7
 HORA_FIM = 19
@@ -866,6 +863,32 @@ def mostrar_informacoes(info):
 # CONTROLE DO PERÍODO DE COLETA
 # ============================================================
 
+def selecionar_modo_coleta():
+    """
+    Solicita ao usuário o período de coleta ao iniciar o programa.
+    """
+
+    while True:
+        print()
+        print("=" * 65)
+        print("                 MODO DE COLETA")
+        print("=" * 65)
+        print("1 - 24 horas")
+        print("2 - 07:00 às 19:00")
+        print("=" * 65)
+
+        opcao = input("Escolha o modo de coleta [1/2]: ").strip()
+
+        if opcao == "1":
+            return "24H"
+
+        if opcao == "2":
+            return "07_19"
+
+        print()
+        print("[AVISO] Opção inválida. Digite 1 ou 2.")
+
+
 def dentro_periodo_coleta(agora=None):
     """
     Verifica se o horário atual está dentro do período
@@ -963,8 +986,13 @@ def obter_descricao_modo_coleta():
 
 def iniciar_monitoramento():
 
+    global MODO_COLETA
+
     print()
     print("Inicializando CPU Monitor...")
+
+    # Solicita o modo de coleta ao usuário.
+    MODO_COLETA = selecionar_modo_coleta()
 
     # Cria banco/tabelas.
     criar_banco()
